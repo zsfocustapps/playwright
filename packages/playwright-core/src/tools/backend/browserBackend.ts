@@ -44,6 +44,8 @@ export class BrowserBackend implements ServerBackend {
       sessionLog: this._sessionLog,
       cwd: clientInfo.cwd,
     });
+    if (this._config.autoRecord)
+      await this._context.startRecording();
   }
 
   async dispose() {
@@ -69,13 +71,22 @@ export class BrowserBackend implements ServerBackend {
     let responseObject: mcpServer.CallToolResult;
     try {
       await tool.handle(context, parsedArguments, response);
+      for (const reason of context.drainPendingUnhandledRejections())
+        response.addError(formatRejectionReason(reason));
       responseObject = await response.serialize();
       this._sessionLog?.logResponse(name, parsedArguments, responseObject);
     } catch (error: any) {
-      return formatError(String(error));
+      const messages = [String(error), ...context.drainPendingUnhandledRejections().map(formatRejectionReason)];
+      return formatError(messages.join('\n\n'));
     } finally {
       context.setRunningTool(undefined);
     }
     return responseObject;
   }
+}
+
+function formatRejectionReason(reason: unknown): string {
+  if (reason instanceof Error)
+    return reason.stack ?? reason.message;
+  return String(reason);
 }
